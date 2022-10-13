@@ -1,3 +1,5 @@
+import com.google.cloud.tools.jib.gradle.ExtraDirectoryParameters
+
 /*
  * Copyright The OpenTelemetry Authors
  *
@@ -15,9 +17,10 @@
  */
 plugins {
     application
+    id("com.google.cloud.tools.jib").version("3.3.0")
 }
 
-val otelVersion = "1.17.0"
+val otelVersion = "1.18.0"
 
 repositories {
     mavenCentral()
@@ -38,6 +41,7 @@ dependencies {
 
     // Necessary to download the jar of the Java Agent
     javaagentDependency("software.amazon.opentelemetry:aws-opentelemetry-agent:${otelVersion}@jar")
+    javaagentDependency(project(":extension"))
 }
 
 
@@ -45,7 +49,29 @@ application {
     mainClass.set("software.amazon.adot.sampleapp.MainAuto")
     applicationDefaultJvmArgs = listOf(
         "-javaagent:$buildDir/javaagent/aws-opentelemetry-agent-${otelVersion}.jar", // Use the Java agent when the application is run
-        "-Dotel.service.name=java-sample-app")  // sets the name of the application in traces and metrics.
+        "-Dotel.service.name=java-sample-app",  // sets the name of the application in traces and metrics.
+        "-Dotel.javaagent.extensions=${buildDir}/javaagent/extension.jar")
+}
+
+val agentJibDir = "/opt/adot-agent"
+val hostDir = "${buildDir}/javaagent"
+
+jib {
+    to {
+        image = "public.ecr.aws/u3f4a6a8/java-sample-app:alpha"
+    }
+    extraDirectories.paths {
+        path {
+            setFrom(hostDir)
+            into = agentJibDir
+        }
+    }
+    container.jvmFlags = listOf("-javaagent:$agentJibDir/aws-opentelemetry-agent-${otelVersion}.jar", // Use the Java agent when the application is run
+        "-Dotel.service.name=java-sample-app",  // sets the name of the application in traces and metrics.
+        "-Dotel.javaagent.extensions=${agentJibDir}/extension.jar")
+    from {
+        image = "gcr.io/distroless/java17-debian11:debug"
+    }
 }
 
 tasks.register<Copy>("download") {
@@ -54,5 +80,13 @@ tasks.register<Copy>("download") {
 }
 
 tasks.named("run") {
+    dependsOn("download")
+}
+
+tasks.named("jib") {
+    dependsOn("download")
+}
+
+tasks.named("jibDockerBuild") {
     dependsOn("download")
 }
